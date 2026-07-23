@@ -1,0 +1,19 @@
+-- ============================================================
+-- Шаблон для будущих изменений структуры БД.
+--
+-- Как добавить новую миграцию:
+--   1. Скопируйте этот файл в sql/005_описание.sql (006, 007 и т.д. — по порядку).
+--   2. Впишите нужные ALTER TABLE / CREATE TABLE / CREATE INDEX команды.
+--   3. Запустите:  npm run migrate
+--      (или в Railway: откройте Shell сервиса и выполните ту же команду).
+--   4. server/migrate.js применяет только новые файлы — уже применённые
+--      миграции пропускаются автоматически (таблица schema_migrations).
+--
+-- Пример — добавление нового столбца:
+-- ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_correction BOOLEAN NOT NULL DEFAULT FALSE;
+--
+-- Пример — новая категория:
+-- INSERT INTO categories (name, group_id, sort_order)
+-- SELECT 'Новая категория', id, 99 FROM category_groups WHERE name = 'Прочее'
+-- ON CONFLICT (name, group_id) DO NOTHING;
+-- ============================================================

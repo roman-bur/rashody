@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Учёт расходов</title>
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Расходы">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- Экран выбора пользователя -->
+<div id="screen-login">
+  <h1>Учёт расходов</h1>
+  <p>Выберите себя из списка, чтобы продолжить</p>
+  <div id="name-list" class="name-list"></div>
+</div>
+
+<!-- Основное приложение -->
+<div id="app" class="hidden">
+
+  <header class="app-header">
+    <h1 id="header-title">Главная</h1>
+    <span id="header-user" class="badge"></span>
+  </header>
+
+  <main class="container">
+
+    <!-- Главная -->
+    <section id="screen-home">
+      <div class="summary-row">
+        <div class="summary-card">
+          <div class="label">Сегодня</div>
+          <div class="value" id="sum-today">0 ₽</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Этот месяц</div>
+          <div class="value" id="sum-month">0 ₽</div>
+        </div>
+      </div>
+
+      <div class="section-title">Последние расходы</div>
+      <div id="recent-list" class="cards-list"></div>
+    </section>
+
+    <!-- Расходы -->
+    <section id="screen-expenses" class="hidden">
+      <div class="filters">
+        <select id="f-period">
+          <option value="">За всё время</option>
+          <option value="today">Сегодня</option>
+          <option value="this_week">Текущая неделя</option>
+          <option value="last_week">Прошлая неделя</option>
+          <option value="this_month" selected>Текущий месяц</option>
+          <option value="last_month">Прошлый месяц</option>
+          <option value="custom">Произвольный период</option>
+        </select>
+        <select id="f-group"><option value="">Все разделы</option></select>
+        <select id="f-category"><option value="">Все категории</option></select>
+        <select id="f-user"><option value="">Все пользователи</option></select>
+      </div>
+      <div id="f-custom-dates" class="filters hidden">
+        <input type="date" id="f-date-from">
+        <input type="date" id="f-date-to">
+      </div>
+
+      <div id="expenses-cards" class="cards-list as-table-on-desktop"></div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Дата</th><th>Раздел</th><th>Категория</th><th>Сумма</th><th>Комментарий</th><th>Добавил</th></tr>
+          </thead>
+          <tbody id="expenses-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Отчёты -->
+    <section id="screen-reports" class="hidden">
+      <div class="tabs">
+        <button data-tab="operations" class="active">Операции</button>
+        <button data-tab="by-category">По категориям</button>
+        <button data-tab="by-user">По пользователям</button>
+      </div>
+
+      <div class="filters">
+        <select id="r-period">
+          <option value="today">Сегодня</option>
+          <option value="this_week">Текущая неделя</option>
+          <option value="last_week">Прошлая неделя</option>
+          <option value="this_month" selected>Текущий месяц</option>
+          <option value="last_month">Прошлый месяц</option>
+          <option value="custom">Произвольный период</option>
+        </select>
+      </div>
+      <div id="r-custom-dates" class="filters hidden">
+        <input type="date" id="r-date-from">
+        <input type="date" id="r-date-to">
+      </div>
+
+      <div id="report-body"></div>
+      <a id="export-link" class="export-btn" href="#">Экспорт в CSV</a>
+    </section>
+
+    <!-- Профиль -->
+    <section id="screen-profile" class="hidden">
+      <div class="profile-block">
+        <div class="list-row">
+          <div><strong id="profile-name"></strong></div>
+          <span id="profile-badge" class="badge"></span>
+        </div>
+        <button id="btn-switch-user" class="btn-secondary">Сменить пользователя</button>
+      </div>
+
+      <div id="admin-block" class="hidden">
+        <div class="profile-block">
+          <h3>Пользователи</h3>
+          <div id="admin-users-list"></div>
+          <button id="btn-add-user" class="btn-secondary">+ Добавить пользователя</button>
+        </div>
+
+        <div class="profile-block">
+          <h3>Категории</h3>
+          <div id="admin-categories-list"></div>
+          <button id="btn-add-category" class="btn-secondary">+ Добавить категорию</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <button class="fab-expense" id="btn-add-expense">+ Расход</button>
+
+  <nav class="bottom-nav">
+    <button data-screen="home" class="active"><span class="icon">🏠</span>Главная</button>
+    <button data-screen="expenses"><span class="icon">📋</span>Расходы</button>
+    <button data-screen="reports"><span class="icon">📊</span>Отчёты</button>
+    <button data-screen="profile"><span class="icon">👤</span>Профиль</button>
+  </nav>
+</div>
+
+<!-- Модалка добавления расхода -->
+<div id="modal-expense" class="modal-backdrop hidden">
+  <div class="modal-sheet">
+    <div class="step-header">
+      <div class="step-dots">
+        <span data-step="1"></span><span data-step="2"></span><span data-step="3"></span><span data-step="4"></span>
+      </div>
+      <button class="btn-close" id="btn-close-modal">✕</button>
+    </div>
+
+    <div id="step-1" class="modal-step">
+      <h2>Категория</h2>
+      <div id="modal-category-groups"></div>
+    </div>
+
+    <div id="step-2" class="modal-step hidden">
+      <h2>Сумма</h2>
+      <input type="number" inputmode="decimal" id="input-amount" class="amount-input" placeholder="0" autofocus>
+      <div id="amount-error" class="error-text hidden">Укажите сумму больше нуля</div>
+      <button class="btn-primary" id="btn-amount-next">Далее</button>
+    </div>
+
+    <div id="step-3" class="modal-step hidden">
+      <h2>Дата</h2>
+      <div class="field-label">По умолчанию — сегодня</div>
+      <input type="date" id="input-date">
+      <button class="btn-primary" id="btn-date-next">Далее</button>
+    </div>
+
+    <div id="step-4" class="modal-step hidden">
+      <h2>Комментарий</h2>
+      <div class="field-label">Необязательно</div>
+      <textarea id="input-comment" placeholder="Например: возврат клиенту"></textarea>
+      <button class="btn-primary" id="btn-save-expense">Сохранить расход</button>
+    </div>
+
+    <div id="step-confirm" class="modal-step hidden">
+      <div class="confirm-box">
+        <div class="check">✅</div>
+        <div>Расход принят</div>
+        <div class="sum" id="confirm-text"></div>
+        <button class="btn-primary" id="btn-add-more">Добавить ещё</button>
+        <button class="btn-secondary" id="btn-done">Готово</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -130,6 +130,16 @@
           <div id="admin-categories-list"></div>
           <button id="btn-add-category" class="btn-secondary">+ Добавить категорию</button>
         </div>
+
+        <div class="profile-block">
+          <h3>Баланс наличных</h3>
+          <div class="value" id="balance-amount">0 ₽</div>
+          <div class="field-label" id="balance-detail"></div>
+          <button id="btn-add-income" class="btn-secondary">+ Приход</button>
+          <button id="btn-adjust-balance" class="btn-secondary">Указать остаток на сегодня</button>
+          <div class="section-title">Последние записи</div>
+          <div id="balance-income-list"></div>
+        </div>
       </div>
     </section>
 
@@ -178,6 +188,10 @@
       <h2>Комментарий</h2>
       <div class="field-label">Необязательно</div>
       <textarea id="input-comment" placeholder="Например: возврат клиенту"></textarea>
+      <label id="cash-checkbox-row" class="checkbox-row hidden">
+        <input type="checkbox" id="input-from-cash">
+        Оплачено из моих личных наличных
+      </label>
       <button class="btn-primary" id="btn-save-expense">Сохранить расход</button>
     </div>
 

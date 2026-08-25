@@ -7,6 +7,7 @@ const usersRouter = require('./routes/users');
 const categoriesRouter = require('./routes/categories');
 const expensesRouter = require('./routes/expenses');
 const reportsRouter = require('./routes/reports');
+const balanceRouter = require('./routes/balance');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -16,6 +17,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/expenses', expensesRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/balance', balanceRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

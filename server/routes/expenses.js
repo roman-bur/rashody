@@ -68,6 +68,9 @@ router.post('/', requireUser, async (req, res, next) => {
     const amount = Number(req.body.amount);
     const expenseDate = req.body.expense_date || new Date().toISOString().slice(0, 10);
     const comment = (req.body.comment || '').trim() || null;
+    // Отметку "из личных наличных" может проставить только администратор — это его
+    // личный учёт, обычным пользователям галочка в интерфейсе не показывается вовсе.
+    const fromPersonalCash = req.currentUser.is_admin && req.body.from_personal_cash === true;
 
     if (!categoryId) return res.status(400).json({ error: 'Выберите категорию' });
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Укажите сумму больше нуля' });
@@ -79,10 +82,10 @@ router.post('/', requireUser, async (req, res, next) => {
     if (!catRows.length) return res.status(400).json({ error: 'Категория не найдена или отключена' });
 
     const { rows } = await pool.query(
-      `INSERT INTO expenses (category_id, amount, expense_date, comment, user_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, category_id, amount, expense_date, comment, user_id, created_at`,
-      [categoryId, amount, expenseDate, comment, req.currentUser.id]
+      `INSERT INTO expenses (category_id, amount, expense_date, comment, user_id, from_personal_cash)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, category_id, amount, expense_date, comment, user_id, created_at, from_personal_cash`,
+      [categoryId, amount, expenseDate, comment, req.currentUser.id, fromPersonalCash]
     );
 
     res.status(201).json({

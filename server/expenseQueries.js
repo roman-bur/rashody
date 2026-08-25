@@ -25,12 +25,15 @@ function buildFilters(query, startIndex) {
     where.push(`e.user_id = $${i++}`);
     values.push(parseInt(query.user_id, 10));
   }
+  if (query.from_personal_cash) {
+    where.push(`e.from_personal_cash = TRUE`);
+  }
 
   return { whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '', values, nextIndex: i };
 }
 
 const BASE_SELECT = `
-  SELECT e.id, e.amount, e.expense_date, e.comment, e.created_at,
+  SELECT e.id, e.amount, e.expense_date, e.comment, e.created_at, e.from_personal_cash,
          c.id AS category_id, c.name AS category_name,
          g.id AS group_id, g.name AS group_name,
          u.id AS user_id, u.name AS user_name

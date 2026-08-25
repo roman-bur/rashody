@@ -120,6 +120,16 @@
 
       <div id="admin-block" class="hidden">
         <div class="profile-block">
+          <h3>Баланс наличных</h3>
+          <div class="value" id="balance-amount">0 ₽</div>
+          <div class="field-label" id="balance-detail"></div>
+          <button id="btn-add-income" class="btn-secondary">+ Приход</button>
+          <button id="btn-adjust-balance" class="btn-secondary">Указать остаток на сегодня</button>
+          <div class="section-title">Последние записи</div>
+          <div id="balance-income-list"></div>
+        </div>
+
+        <div class="profile-block">
           <h3>Пользователи</h3>
           <div id="admin-users-list"></div>
           <button id="btn-add-user" class="btn-secondary">+ Добавить пользователя</button>
@@ -129,16 +139,6 @@
           <h3>Категории</h3>
           <div id="admin-categories-list"></div>
           <button id="btn-add-category" class="btn-secondary">+ Добавить категорию</button>
-        </div>
-
-        <div class="profile-block">
-          <h3>Баланс наличных</h3>
-          <div class="value" id="balance-amount">0 ₽</div>
-          <div class="field-label" id="balance-detail"></div>
-          <button id="btn-add-income" class="btn-secondary">+ Приход</button>
-          <button id="btn-adjust-balance" class="btn-secondary">Указать остаток на сегодня</button>
-          <div class="section-title">Последние записи</div>
-          <div id="balance-income-list"></div>
         </div>
       </div>
     </section>

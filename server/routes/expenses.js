@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { requireUser } = require('../auth');
+const { requireUser, requireAdmin } = require('../auth');
 const { buildFilters, BASE_SELECT } = require('../expenseQueries');
 
 const router = express.Router();
@@ -93,6 +93,21 @@ router.post('/', requireUser, async (req, res, next) => {
       category_name: catRows[0].name,
       user_name: req.currentUser.name
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Удалить расход — только администратор. Осознанно узкая функция: нужна на случай
+// сбоев (задвоенная запись из-за потери связи и т.п.), не как обычный рабочий сценарий.
+router.delete('/:id', requireUser, requireAdmin, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Некорректный id' });
+
+    const { rowCount } = await pool.query('DELETE FROM expenses WHERE id = $1', [id]);
+    if (!rowCount) return res.status(404).json({ error: 'Расход не найден' });
+    res.json({ id, deleted: true });
   } catch (err) {
     next(err);
   }

@@ -245,7 +245,8 @@
       '<div class="field-label">Расходов пока нет</div>';
   }
 
-  function expenseCardHtml(e) {
+  function expenseCardHtml(e, opts = {}) {
+    const canDelete = opts.deletable && state.user && state.user.is_admin;
     return `
       <div class="expense-card">
         <div class="main">
@@ -254,7 +255,23 @@
           ${e.comment ? `<div class="comment">${escapeHtml(e.comment)}</div>` : ''}
         </div>
         <div class="amount">${formatMoney(e.amount)}</div>
+        ${canDelete ? `<button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}
       </div>`;
+  }
+
+  function wireExpenseDeleteButtons(container, onDone) {
+    container.querySelectorAll('[data-delete-expense]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Удалить эту запись расхода? Действие необратимо.')) return;
+        try {
+          await api(`/api/expenses/${btn.dataset.deleteExpense}`, { method: 'DELETE' });
+          showToast('Запись удалена');
+          onDone();
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
   }
 
   function escapeHtml(s) {
@@ -302,10 +319,12 @@
     params.set('limit', '500');
 
     const rows = await api(`/api/expenses?${params.toString()}`);
+    const isAdmin = state.user && state.user.is_admin;
 
     const cardsBox = document.getElementById('expenses-cards');
-    cardsBox.innerHTML = rows.length ? rows.map(expenseCardHtml).join('') :
+    cardsBox.innerHTML = rows.length ? rows.map((e) => expenseCardHtml(e, { deletable: true })).join('') :
       '<div class="field-label">Ничего не найдено</div>';
+    wireExpenseDeleteButtons(cardsBox, loadExpensesScreen);
 
     const tbody = document.getElementById('expenses-table-body');
     tbody.innerHTML = rows.map((e) => `
@@ -316,7 +335,9 @@
         <td>${formatMoney(e.amount)}</td>
         <td>${e.comment ? escapeHtml(e.comment) : ''}</td>
         <td>${e.user_name}</td>
+        <td>${isAdmin ? `<button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}</td>
       </tr>`).join('');
+    wireExpenseDeleteButtons(tbody, loadExpensesScreen);
   }
 
   // ---------------------------------------------------------------------

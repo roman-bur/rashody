@@ -482,3 +482,14 @@ textarea { resize: vertical; min-height: 80px; }
   accent-color: var(--accent);
   flex-shrink: 0;
 }
+
+.expense-delete-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+  flex-shrink: 0;
+  align-self: flex-start;
+}

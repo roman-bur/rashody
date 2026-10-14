@@ -37,6 +37,43 @@ router.post('/find-chat', async (req, res) => {
   }
 });
 
+// Имя бота — для ссылки «Подключить Telegram» (t.me/<имя>?start=<код>) в программе «Кухня РЦ».
+router.post('/bot', async (req, res) => {
+  if (!keyOk(req)) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const data = await tg('getMe', {});
+    if (!data.ok) return res.status(502).json({ error: data.description || 'telegram error' });
+    res.json({ username: data.result.username });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// Новые сообщения боту (сотрудники нажимают «Старт» по ссылке с кодом). { offset } — номер, с которого читать;
+// прочитанные Telegram больше не отдаёт. Состояние хранит «Кухня РЦ», здесь ничего не сохраняется.
+router.post('/updates', async (req, res) => {
+  if (!keyOk(req)) return res.status(403).json({ error: 'forbidden' });
+  const offset = Number((req.body || {}).offset) || 0;
+  try {
+    const data = await tg('getUpdates', { offset, timeout: 0, allowed_updates: ['message'] });
+    if (!data.ok) return res.status(502).json({ error: data.description || 'telegram error' });
+    const items = (data.result || []).map((u) => {
+      const m = u.message || {};
+      const from = m.from || {};
+      return {
+        update_id: u.update_id,
+        chat_id: m.chat ? String(m.chat.id) : null,
+        chat_type: m.chat ? m.chat.type : null,
+        text: typeof m.text === 'string' ? m.text.slice(0, 200) : null,
+        name: [from.first_name, from.last_name].filter(Boolean).join(' ').slice(0, 100)
+      };
+    });
+    res.json({ updates: items });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // Отправка сообщения: { chat_id, text }
 router.post('/', async (req, res) => {
   if (!keyOk(req)) return res.status(403).json({ error: 'forbidden' });

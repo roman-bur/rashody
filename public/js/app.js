@@ -169,6 +169,7 @@
   async function postExpense(item) {
     const saved = await api('/api/expenses', {
       method: 'POST',
+      headers: item.user_id ? { 'X-User-Id': item.user_id } : {},
       body: JSON.stringify({
         client_id: item.client_id,
         category_id: item.category_id,
@@ -213,8 +214,9 @@
   // ---------------------------------------------------------------------
 
   async function api(path, options = {}) {
-    const headers = Object.assign({}, options.headers || {});
+    const headers = {};
     if (state.user) headers['X-User-Id'] = state.user.id;
+    Object.assign(headers, options.headers || {}); // расход из очереди уходит от того, кто его записал
     if (options.body) headers['Content-Type'] = 'application/json';
 
     // Запись (POST/PATCH/DELETE) ждём не дольше 20 секунд, чтение — 30
@@ -742,6 +744,9 @@
     } catch (e) {
       amountEl.textContent = '— ₽';
       document.getElementById('balance-detail').textContent = '';
+      // Старые списки с остатками не оставляем — они могли устареть
+      document.getElementById('balance-ledger').innerHTML = '<div class="field-label">Не загружено — нет связи</div>';
+      document.getElementById('balance-unmarked-list').innerHTML = '<div class="field-label">Не загружено — нет связи</div>';
       statusEl.className = 'balance-status bad';
       statusEl.textContent = `❌ Баланс не загрузился: ${e.message}. Не опирайтесь на старые цифры — обновите экран, когда появится связь.`;
     }
@@ -750,39 +755,57 @@
   async function loadBalanceBlockData() {
     const from14 = new Date();
     from14.setDate(from14.getDate() - 13);
-    const [summary, entries, spent, unmarked] = await Promise.all([
+    const [summary, ledger, unmarked] = await Promise.all([
       api('/api/balance/summary'),
-      api('/api/balance/entries?limit=15'),
-      api('/api/expenses?from_personal_cash=1&limit=30'),
+      api('/api/balance/ledger?limit=40'),
       api(`/api/expenses?from_personal_cash=0&user_id=${state.user.id}&date_from=${toISODate(from14)}&limit=50`)
     ]);
 
     state.lastBalance = summary.balance;
     document.getElementById('balance-amount').textContent = formatMoney(summary.balance);
     document.getElementById('balance-detail').textContent =
-      `Внесено (приходы и корректировки): ${formatMoney(summary.income_total)} · Расходы из наличных: ${formatMoney(summary.expenses_total)}`;
+      `Приходы ${formatMoney(summary.income_total)} − расходы из наличных ${formatMoney(summary.expenses_total)} = ${formatMoney(summary.balance)}`;
 
-    // Списано с баланса — последние 30 расходов с отметкой «из личных»
-    const spentBox = document.getElementById('balance-spent-list');
-    document.getElementById('balance-spent-total').textContent = spent.length
-      ? `Последние ${spent.length}: ${formatMoney(spent.reduce((s, e) => s + Number(e.amount), 0))}`
-      : '';
-    spentBox.innerHTML = spent.length ? spent.map((e) => expenseCardHtml(e, { editable: true })).join('')
-      : '<div class="field-label">Пока ничего не списано</div>';
-    wireExpenseDeleteButtons(spentBox, loadBalanceBlock);
+    // Самопроверка: остаток после последней операции в выписке = баланс
+    if (ledger.length && Math.abs(ledger[0].balance_after - summary.balance) > 0.005) {
+      throw new Error(`выписка (${formatMoney(ledger[0].balance_after)}) не совпала с балансом (${formatMoney(summary.balance)}) — сообщите разработчику`);
+    }
+
+    const box = document.getElementById('balance-ledger');
+    box.innerHTML = ledger.length ? ledger.map((op) => {
+      if (op.kind === 'out') {
+        shownExpenses[op.id] = {
+          id: op.id, amount: -op.delta, expense_date: op.op_date, comment: op.comment,
+          category_id: op.category_id, category_name: op.category_name, group_name: op.group_name,
+          user_name: op.user_name, from_personal_cash: true
+        };
+      }
+      const time = new Date(op.created_at);
+      const when = `${formatDateRu(op.op_date)}, внесено ${pad2(time.getDate())}.${pad2(time.getMonth() + 1)} ${pad2(time.getHours())}:${pad2(time.getMinutes())}`;
+      const title = op.kind === 'out'
+        ? `💵 ${escapeHtml(op.category_name)}`
+        : (op.delta >= 0 ? '➕ Приход' : '➖ Корректировка');
+      return `
+        <div class="ledger-row">
+          <div class="main">
+            <div class="category">${title}</div>
+            <div class="meta">${when} · ${escapeHtml(op.user_name)}</div>
+            ${op.comment ? `<div class="comment">${escapeHtml(op.comment)}</div>` : ''}
+          </div>
+          <div class="nums">
+            <div class="delta ${op.delta < 0 ? 'minus' : 'plus'}">${op.delta < 0 ? '−' : '+'}${formatMoney(Math.abs(op.delta))}</div>
+            <div class="after">остаток ${formatMoney(op.balance_after)}</div>
+            ${op.kind === 'out' ? `<button class="expense-edit-btn" data-edit-expense="${op.id}" title="Исправить">✎</button>` : ''}
+          </div>
+        </div>`;
+    }).join('') : '<div class="field-label">Операций пока нет</div>';
+    wireExpenseDeleteButtons(box, loadBalanceBlock);
 
     // Мои расходы за 14 дней без отметки — можно списать одной кнопкой
     const unmarkedBox = document.getElementById('balance-unmarked-list');
     unmarkedBox.innerHTML = unmarked.length ? unmarked.map((e) => expenseCardHtml(e, { editable: true, markCash: true })).join('')
       : '<div class="field-label">Нет</div>';
     wireExpenseDeleteButtons(unmarkedBox, loadBalanceBlock);
-
-    const list = document.getElementById('balance-income-list');
-    list.innerHTML = entries.length ? entries.map((en) => `
-      <div class="list-row">
-        <span>${formatDateRu(en.entry_date)}${en.comment ? ' · ' + escapeHtml(en.comment) : ''}</span>
-        <span>${en.amount >= 0 ? '+' : ''}${formatMoney(en.amount)}</span>
-      </div>`).join('') : '<div class="field-label">Записей пока нет</div>';
   }
 
   document.getElementById('btn-switch-user').addEventListener('click', () => {
@@ -931,6 +954,7 @@
     if (!state.modal.clientId) state.modal.clientId = newClientId();
     const item = {
       client_id: state.modal.clientId,
+      user_id: state.user.id,
       category_id: state.modal.categoryId,
       category_name: state.modal.categoryName,
       amount: state.modal.amount,

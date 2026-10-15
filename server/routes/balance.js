@@ -28,6 +28,40 @@ router.get('/summary', requireUser, requireAdmin, async (req, res, next) => {
   }
 });
 
+// Выписка по балансу: приходы/корректировки (+) и расходы с отметкой «из личных» (−)
+// в порядке внесения, с остатком после каждой операции. Остаток считается по ВСЕЙ
+// истории, показываются последние N операций (новые сверху). Остаток после самой
+// новой операции обязан совпасть с /summary — фронтенд это проверяет.
+router.get('/ledger', requireUser, requireAdmin, async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+    const { rows } = await pool.query(
+      `WITH ops AS (
+         SELECT 'in' AS kind, ce.id, ce.amount AS delta, ce.entry_date::text AS op_date, ce.comment,
+                ce.created_at, u.name AS user_name,
+                NULL::int AS category_id, NULL::text AS category_name, NULL::text AS group_name
+         FROM cash_balance_entries ce JOIN users u ON u.id = ce.user_id
+         UNION ALL
+         SELECT 'out', e.id, -e.amount, e.expense_date::text, e.comment,
+                e.created_at, u.name, c.id, c.name, g.name
+         FROM expenses e
+         JOIN users u ON u.id = e.user_id
+         JOIN categories c ON c.id = e.category_id
+         JOIN category_groups g ON g.id = c.group_id
+         WHERE e.from_personal_cash = TRUE
+       ), r AS (
+         SELECT *, SUM(delta) OVER (ORDER BY created_at, kind, id ROWS UNBOUNDED PRECEDING) AS balance_after
+         FROM ops
+       )
+       SELECT * FROM r ORDER BY created_at DESC, kind DESC, id DESC LIMIT $1`,
+      [limit]
+    );
+    res.json(rows.map((r) => ({ ...r, delta: Number(r.delta), balance_after: Number(r.balance_after) })));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Список приходов (последние сверху)
 router.get('/entries', requireUser, requireAdmin, async (req, res, next) => {
   try {

@@ -547,3 +547,20 @@ textarea { resize: vertical; min-height: 80px; }
 .balance-status { font-size: 14px; margin-bottom: 8px; }
 .balance-status.ok { color: var(--accent); }
 .balance-status.bad { color: var(--danger); }
+
+/* ---------- Выписка по балансу ---------- */
+.ledger-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ledger-row .main { min-width: 0; }
+.ledger-row .category { font-weight: 600; }
+.ledger-row .meta, .ledger-row .comment { color: var(--text-dim); font-size: 13px; margin-top: 2px; word-break: break-word; }
+.ledger-row .nums { text-align: right; flex-shrink: 0; }
+.ledger-row .delta { font-weight: 700; font-size: 16px; white-space: nowrap; }
+.ledger-row .delta.minus { color: var(--danger); }
+.ledger-row .delta.plus { color: var(--accent); }
+.ledger-row .after { color: var(--text-dim); font-size: 13px; white-space: nowrap; margin-top: 2px; }

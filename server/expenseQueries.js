@@ -25,7 +25,11 @@ function buildFilters(query, startIndex) {
     where.push(`e.user_id = $${i++}`);
     values.push(parseInt(query.user_id, 10));
   }
-  if (query.from_personal_cash) {
+  // from_personal_cash=1/true — только «из личных наличных»; =0/false — только без отметки
+  const fpc = query.from_personal_cash === undefined ? '' : String(query.from_personal_cash).toLowerCase();
+  if (fpc === '0' || fpc === 'false') {
+    where.push(`e.from_personal_cash = FALSE`);
+  } else if (fpc) {
     where.push(`e.from_personal_cash = TRUE`);
   }
 

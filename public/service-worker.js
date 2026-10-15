@@ -1,6 +1,8 @@
 // Простой service worker: кэширует оболочку приложения, чтобы иконка/запуск
 // работали как отдельное приложение. Данные (API-запросы) всегда идут в сеть.
-const CACHE_NAME = 'expenses-shell-v1';
+// Оболочка — «сначала сеть»: телефон всегда получает свежую версию программы,
+// кэш нужен только без интернета (раньше старая версия могла жить на телефоне вечно).
+const CACHE_NAME = 'expenses-shell-v2';
 const SHELL_FILES = [
   '/',
   '/index.html',
@@ -28,7 +30,16 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) {
     return; // API всегда напрямую из сети
   }
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request, { cache: 'no-cache' })
+      .then((resp) => {
+        if (resp && resp.ok) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        }
+        return resp;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

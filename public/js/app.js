@@ -50,7 +50,7 @@
   }
 
   function formatDateRu(iso) {
-    const [y, m, d] = iso.split('-');
+    const [y, m, d] = String(iso).slice(0, 10).split('-');
     return `${d}.${m}.${y}`;
   }
 
@@ -245,20 +245,33 @@
       '<div class="field-label">Расходов пока нет</div>';
   }
 
+  // Все показанные расходы по id — для окна «Исправить»
+  const shownExpenses = {};
+
   function expenseCardHtml(e, opts = {}) {
-    const canDelete = opts.deletable && state.user && state.user.is_admin;
+    shownExpenses[e.id] = e;
+    const isAdmin = state.user && state.user.is_admin;
+    const canDelete = opts.deletable && isAdmin;
+    const canEdit = (opts.deletable || opts.editable) && isAdmin;
     return `
       <div class="expense-card">
         <div class="main">
-          <div class="category">${e.from_personal_cash ? '💵 ' : ''}${e.category_name}</div>
-          <div class="meta">${formatDateRu(e.expense_date)} · ${e.group_name} · ${e.user_name}</div>
+          <div class="category">${e.from_personal_cash ? '💵 ' : ''}${escapeHtml(e.category_name)}</div>
+          <div class="meta">${formatDateRu(e.expense_date)} · ${escapeHtml(e.group_name)} · ${escapeHtml(e.user_name)}</div>
           ${e.comment ? `<div class="comment">${escapeHtml(e.comment)}</div>` : ''}
         </div>
-        <div class="amount">${formatMoney(e.amount)}</div>
-        ${canDelete ? `<button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}
+        <div class="actions">
+          <div class="amount">${formatMoney(e.amount)}</div>
+          ${opts.markCash && isAdmin ? `<button class="mark-cash-btn" data-mark-cash="${e.id}">💵 Из моих</button>` : ''}
+          <div>
+            ${canEdit ? `<button class="expense-edit-btn" data-edit-expense="${e.id}" title="Исправить">✎</button>` : ''}
+            ${canDelete ? `<button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}
+          </div>
+        </div>
       </div>`;
   }
 
+  // Кнопки на карточках расходов: удалить, исправить, «💵 Из моих»
   function wireExpenseDeleteButtons(container, onDone) {
     container.querySelectorAll('[data-delete-expense]').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -272,7 +285,89 @@
         }
       });
     });
+    container.querySelectorAll('[data-edit-expense]').forEach((btn) => {
+      btn.addEventListener('click', () => openEditModal(shownExpenses[btn.dataset.editExpense], onDone));
+    });
+    container.querySelectorAll('[data-mark-cash]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const e = shownExpenses[btn.dataset.markCash];
+        if (!confirm(`Списать с баланса: ${e.category_name}, ${formatMoney(e.amount)}?`)) return;
+        try {
+          const upd = await api(`/api/expenses/${e.id}`, { method: 'PATCH', body: JSON.stringify({ from_personal_cash: true }) });
+          if (!upd.from_personal_cash) throw new Error('Отметка не сохранилась — сообщите разработчику');
+          showToast('Списано с баланса');
+          onDone();
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
   }
+
+  // ---------------------------------------------------------------------
+  // Исправление расхода (администратор)
+  // ---------------------------------------------------------------------
+
+  let editState = null;
+
+  function openEditModal(e, onDone) {
+    if (!e) return;
+    editState = { id: e.id, onDone };
+    const sel = document.getElementById('edit-category');
+    sel.innerHTML = state.categoryGroups.map((g) => `
+      <optgroup label="${escapeHtml(g.name)}">
+        ${g.categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+      </optgroup>`).join('');
+    if (!sel.querySelector(`option[value="${e.category_id}"]`)) {
+      sel.insertAdjacentHTML('afterbegin', `<option value="${e.category_id}">${escapeHtml(e.category_name)}</option>`);
+    }
+    sel.value = String(e.category_id);
+    document.getElementById('edit-amount').value = Number(e.amount);
+    document.getElementById('edit-date').value = String(e.expense_date).slice(0, 10);
+    document.getElementById('edit-comment').value = e.comment || '';
+    document.getElementById('edit-from-cash').checked = !!e.from_personal_cash;
+    document.getElementById('modal-edit').classList.remove('hidden');
+  }
+
+  function closeEditModal() {
+    document.getElementById('modal-edit').classList.add('hidden');
+    editState = null;
+  }
+
+  document.getElementById('btn-close-edit').addEventListener('click', closeEditModal);
+  document.getElementById('modal-edit').addEventListener('click', (ev) => {
+    if (ev.target.id === 'modal-edit') closeEditModal();
+  });
+
+  document.getElementById('btn-save-edit').addEventListener('click', async () => {
+    if (!editState) return;
+    const amount = parseFloat(String(document.getElementById('edit-amount').value).replace(',', '.'));
+    if (!amount || amount <= 0) { showToast('Укажите сумму больше нуля'); return; }
+    const wantCash = document.getElementById('edit-from-cash').checked;
+    const btn = document.getElementById('btn-save-edit');
+    btn.disabled = true;
+    try {
+      const upd = await api(`/api/expenses/${editState.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          category_id: Number(document.getElementById('edit-category').value),
+          amount,
+          expense_date: document.getElementById('edit-date').value,
+          comment: document.getElementById('edit-comment').value,
+          from_personal_cash: wantCash
+        })
+      });
+      if (upd.from_personal_cash !== wantCash) throw new Error('Отметка «из моих» не сохранилась — сообщите разработчику');
+      const onDone = editState.onDone;
+      closeEditModal();
+      showToast(upd.changed && upd.changed.length ? 'Исправлено' : 'Изменений нет');
+      if (onDone) onDone();
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -335,7 +430,7 @@
         <td>${formatMoney(e.amount)}</td>
         <td>${e.comment ? escapeHtml(e.comment) : ''}</td>
         <td>${e.user_name}</td>
-        <td>${isAdmin ? `<button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}</td>
+        <td>${isAdmin ? `<button class="expense-edit-btn" data-edit-expense="${e.id}" title="Исправить">✎</button><button class="expense-delete-btn" data-delete-expense="${e.id}" title="Удалить">✕</button>` : ''}</td>
       </tr>`).join('');
     wireExpenseDeleteButtons(tbody, loadExpensesScreen);
   }
@@ -494,15 +589,34 @@
 
   // Личный баланс наличных (только для администратора)
   async function loadBalanceBlock() {
-    const [summary, entries] = await Promise.all([
+    const from14 = new Date();
+    from14.setDate(from14.getDate() - 13);
+    const [summary, entries, spent, unmarked] = await Promise.all([
       api('/api/balance/summary'),
-      api('/api/balance/entries?limit=15')
+      api('/api/balance/entries?limit=15'),
+      api('/api/expenses?from_personal_cash=1&limit=30'),
+      api(`/api/expenses?from_personal_cash=0&user_id=${state.user.id}&date_from=${toISODate(from14)}&limit=50`)
     ]);
 
     state.lastBalance = summary.balance;
     document.getElementById('balance-amount').textContent = formatMoney(summary.balance);
     document.getElementById('balance-detail').textContent =
       `Внесено (приходы и корректировки): ${formatMoney(summary.income_total)} · Расходы из наличных: ${formatMoney(summary.expenses_total)}`;
+
+    // Списано с баланса — последние 30 расходов с отметкой «из личных»
+    const spentBox = document.getElementById('balance-spent-list');
+    document.getElementById('balance-spent-total').textContent = spent.length
+      ? `Последние ${spent.length}: ${formatMoney(spent.reduce((s, e) => s + Number(e.amount), 0))}`
+      : '';
+    spentBox.innerHTML = spent.length ? spent.map((e) => expenseCardHtml(e, { editable: true })).join('')
+      : '<div class="field-label">Пока ничего не списано</div>';
+    wireExpenseDeleteButtons(spentBox, loadBalanceBlock);
+
+    // Мои расходы за 14 дней без отметки — можно списать одной кнопкой
+    const unmarkedBox = document.getElementById('balance-unmarked-list');
+    unmarkedBox.innerHTML = unmarked.length ? unmarked.map((e) => expenseCardHtml(e, { editable: true, markCash: true })).join('')
+      : '<div class="field-label">Нет</div>';
+    wireExpenseDeleteButtons(unmarkedBox, loadBalanceBlock);
 
     const list = document.getElementById('balance-income-list');
     list.innerHTML = entries.length ? entries.map((en) => `
@@ -653,7 +767,7 @@
     const btn = document.getElementById('btn-save-expense');
     btn.disabled = true;
     try {
-      await api('/api/expenses', {
+      const saved = await api('/api/expenses', {
         method: 'POST',
         body: JSON.stringify({
           category_id: state.modal.categoryId,
@@ -665,6 +779,19 @@
       });
       document.getElementById('confirm-text').textContent =
         `${state.modal.categoryName}, ${formatMoney(state.modal.amount)}`;
+      // Проверка списания: показываем, что сохранилось на сервере, а не что отмечено
+      const cashBox = document.getElementById('confirm-cash');
+      cashBox.className = 'confirm-cash hidden';
+      if (fromCash && !saved.from_personal_cash) {
+        cashBox.className = 'confirm-cash bad';
+        cashBox.textContent = '⚠️ С баланса НЕ списано. Откройте Профиль → «Мои расходы без отметки» и нажмите «💵 Из моих».';
+      } else if (saved.from_personal_cash) {
+        cashBox.className = 'confirm-cash ok';
+        cashBox.textContent = '💵 Списано с баланса';
+        api('/api/balance/summary').then((sm) => {
+          cashBox.textContent = `💵 Списано с баланса. Остаток: ${formatMoney(sm.balance)}`;
+        }).catch(() => {});
+      }
       for (let i = 1; i <= 4; i++) document.getElementById(`step-${i}`).classList.add('hidden');
       document.getElementById('step-confirm').classList.remove('hidden');
       if (state.currentScreen === 'home') loadHomeScreen();

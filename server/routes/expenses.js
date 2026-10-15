@@ -71,6 +71,11 @@ router.post('/', requireUser, async (req, res, next) => {
     // Отметку "из личных наличных" может проставить только администратор — это его
     // личный учёт, обычным пользователям галочка в интерфейсе не показывается вовсе.
     const fromPersonalCash = req.currentUser.is_admin && req.body.from_personal_cash === true;
+    // Раньше отметка от не-администратора молча отбрасывалась — расход сохранялся без
+    // списания с баланса, и никто об этом не знал. Теперь — явная ошибка.
+    if (req.body.from_personal_cash === true && !req.currentUser.is_admin) {
+      return res.status(403).json({ error: 'Отметку «из личных наличных» может ставить только администратор. Расход не сохранён.' });
+    }
 
     if (!categoryId) return res.status(400).json({ error: 'Выберите категорию' });
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Укажите сумму больше нуля' });
@@ -95,6 +100,76 @@ router.post('/', requireUser, async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// Исправить расход — только администратор: категория, сумма, дата, комментарий и
+// отметка «из личных наличных». Баланс пересчитывается сам (он считается из отметок),
+// старое и новое значение пишутся в журнал expense_changes.
+router.patch('/:id', requireUser, requireAdmin, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Некорректный id' });
+
+    await client.query('BEGIN');
+    const { rows: oldRows } = await client.query(
+      `SELECT id, category_id, amount, expense_date::text AS expense_date, comment, from_personal_cash
+       FROM expenses WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (!oldRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Расход не найден' });
+    }
+    const old = oldRows[0];
+    old.amount = Number(old.amount);
+    const next_ = { ...old };
+    const b = req.body || {};
+
+    if (b.category_id !== undefined) {
+      const categoryId = parseInt(b.category_id, 10);
+      const { rows } = await client.query('SELECT id FROM categories WHERE id = $1', [categoryId || 0]);
+      if (!rows.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Категория не найдена' }); }
+      next_.category_id = categoryId;
+    }
+    if (b.amount !== undefined) {
+      const amount = Number(b.amount);
+      if (!amount || amount <= 0) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Укажите сумму больше нуля' }); }
+      next_.amount = amount;
+    }
+    if (b.expense_date !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.expense_date))) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Некорректная дата' }); }
+      next_.expense_date = b.expense_date;
+    }
+    if (b.comment !== undefined) next_.comment = String(b.comment || '').trim() || null;
+    if (b.from_personal_cash !== undefined) next_.from_personal_cash = b.from_personal_cash === true;
+
+    const changed = {};
+    const before = {};
+    for (const k of ['category_id', 'amount', 'expense_date', 'comment', 'from_personal_cash']) {
+      if (next_[k] !== old[k]) { before[k] = old[k]; changed[k] = next_[k]; }
+    }
+    if (Object.keys(changed).length) {
+      await client.query(
+        `UPDATE expenses SET category_id = $1, amount = $2, expense_date = $3, comment = $4, from_personal_cash = $5
+         WHERE id = $6`,
+        [next_.category_id, next_.amount, next_.expense_date, next_.comment, next_.from_personal_cash, id]
+      );
+      await client.query(
+        `INSERT INTO expense_changes (expense_id, user_id, old_values, new_values) VALUES ($1, $2, $3, $4)`,
+        [id, req.currentUser.id, JSON.stringify(before), JSON.stringify(changed)]
+      );
+    }
+    await client.query('COMMIT');
+
+    const { rows } = await pool.query(`${BASE_SELECT} WHERE e.id = $1`, [id]);
+    res.json({ ...rows[0], changed: Object.keys(changed) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
   }
 });
 

@@ -125,7 +125,13 @@
           <div class="field-label" id="balance-detail"></div>
           <button id="btn-add-income" class="btn-secondary">+ Приход</button>
           <button id="btn-adjust-balance" class="btn-secondary">Указать остаток на сегодня</button>
-          <div class="section-title">Последние записи</div>
+          <div class="section-title">Списано с баланса</div>
+          <div class="field-label" id="balance-spent-total"></div>
+          <div id="balance-spent-list"></div>
+          <div class="section-title">Мои расходы без отметки · 14 дней</div>
+          <div class="field-label">Если расход был из ваших денег — нажмите «💵 Из моих», и он спишется с баланса.</div>
+          <div id="balance-unmarked-list"></div>
+          <div class="section-title">Приходы и корректировки</div>
           <div id="balance-income-list"></div>
         </div>
 
@@ -200,10 +206,34 @@
         <div class="check">✅</div>
         <div>Расход принят</div>
         <div class="sum" id="confirm-text"></div>
+        <div id="confirm-cash" class="confirm-cash hidden"></div>
         <button class="btn-primary" id="btn-add-more">Добавить ещё</button>
         <button class="btn-secondary" id="btn-done">Готово</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Модалка исправления расхода (только администратор) -->
+<div id="modal-edit" class="modal-backdrop hidden">
+  <div class="modal-sheet">
+    <div class="step-header">
+      <h2 style="margin:0;">Исправить расход</h2>
+      <button class="btn-close" id="btn-close-edit">✕</button>
+    </div>
+    <div class="field-label">Категория</div>
+    <select id="edit-category"></select>
+    <div class="field-label">Сумма, ₽</div>
+    <input type="number" inputmode="decimal" id="edit-amount">
+    <div class="field-label">Дата</div>
+    <input type="date" id="edit-date">
+    <div class="field-label">Комментарий</div>
+    <textarea id="edit-comment"></textarea>
+    <label class="checkbox-row">
+      <input type="checkbox" id="edit-from-cash">
+      Оплачено из моих личных наличных (списать с баланса)
+    </label>
+    <button class="btn-primary" id="btn-save-edit">Сохранить изменения</button>
   </div>
 </div>
 

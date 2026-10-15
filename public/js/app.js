@@ -94,6 +94,113 @@
     return { from: '', to: '' };
   }
 
+  // ---------------------------------------------------------------------
+  // Связь и несохранённые расходы
+  // ---------------------------------------------------------------------
+
+  let netProblem = false;
+  function setNetProblem(on) {
+    netProblem = on;
+    renderNetBanner();
+  }
+  function renderNetBanner() {
+    const el = document.getElementById('net-banner');
+    if (!el) return;
+    const offline = navigator.onLine === false;
+    if (offline || netProblem) {
+      el.textContent = offline
+        ? '📵 Нет интернета. Расходы сейчас НЕ сохраняются, цифры на экране могут быть устаревшими.'
+        : '⚠️ Нет связи с сервером. Расходы сейчас НЕ сохраняются, цифры на экране могут быть устаревшими.';
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+  window.addEventListener('online', () => {
+    netProblem = false;
+    renderNetBanner();
+    if (state.user) loadCategories().catch(() => {});
+    refreshCurrentScreen();
+  });
+  window.addEventListener('offline', renderNetBanner);
+
+  // Расход хранится на телефоне, пока сервер не подтвердил запись. Если связь
+  // пропала или приложение закрыли — он остаётся в красном списке сверху.
+  const PENDING_KEY = 'expensePending';
+  function loadPending() {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function savePending(list) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(list)); } catch (e) { /* ничего */ }
+    renderPendingBanner();
+  }
+  function addPending(item) {
+    savePending(loadPending().filter((p) => p.client_id !== item.client_id).concat([item]));
+  }
+  function removePending(clientId) {
+    savePending(loadPending().filter((p) => p.client_id !== clientId));
+  }
+  function newClientId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  }
+  function renderPendingBanner() {
+    const el = document.getElementById('pending-banner');
+    if (!el) return;
+    const list = loadPending();
+    if (!list.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="pending-title">❌ Не подтверждено сервером: ${list.length}. В отчётах и балансе этих расходов НЕТ — отправьте их.</div>
+      ${list.map((p) => `
+        <div class="pending-row">
+          <span>${escapeHtml(p.category_name)} · ${formatMoney(p.amount)} · ${formatDateRu(p.expense_date)}${p.from_personal_cash ? ' · 💵' : ''}</span>
+          <span>
+            <button class="mark-cash-btn" data-pending-send="${p.client_id}">Отправить</button>
+            <button class="expense-delete-btn" data-pending-drop="${p.client_id}" title="Не сохранять">✕</button>
+          </span>
+        </div>`).join('')}`;
+    el.querySelectorAll('[data-pending-send]').forEach((b) => b.addEventListener('click', () => sendPending(b.dataset.pendingSend)));
+    el.querySelectorAll('[data-pending-drop]').forEach((b) => b.addEventListener('click', () => {
+      if (!confirm('Не сохранять этот расход? Он будет удалён с телефона.')) return;
+      removePending(b.dataset.pendingDrop);
+    }));
+  }
+  async function postExpense(item) {
+    const saved = await api('/api/expenses', {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: item.client_id,
+        category_id: item.category_id,
+        amount: item.amount,
+        expense_date: item.expense_date,
+        comment: item.comment,
+        from_personal_cash: item.from_personal_cash
+      })
+    });
+    removePending(item.client_id);
+    return saved;
+  }
+  async function sendPending(clientId) {
+    const item = loadPending().find((p) => p.client_id === clientId);
+    if (!item) return;
+    try {
+      const saved = await postExpense(item);
+      if (item.from_personal_cash && !saved.from_personal_cash) {
+        alert('Расход сохранён, но с баланса НЕ списан. Профиль → «Мои расходы без отметки» → «💵 Из моих».');
+      } else {
+        showToast(saved.already_saved ? 'Этот расход уже был сохранён ранее — дубля нет' : 'Сохранено');
+      }
+      refreshCurrentScreen();
+    } catch (e) {
+      if (!e.network) removePending(clientId); // сервер отказал по существу — повтор не поможет
+      alert('Не сохранено: ' + e.message);
+    }
+  }
+  function refreshCurrentScreen() {
+    if (state.user && state.currentScreen) goToScreen(state.currentScreen);
+  }
+
   function showToast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -110,7 +217,23 @@
     if (state.user) headers['X-User-Id'] = state.user.id;
     if (options.body) headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(path, Object.assign({}, options, { headers }));
+    // Запись (POST/PATCH/DELETE) ждём не дольше 20 секунд, чтение — 30
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), options.method && options.method !== 'GET' ? 20000 : 30000) : null;
+    let res;
+    try {
+      res = await fetch(path, Object.assign({}, options, { headers }, ctrl ? { signal: ctrl.signal } : {}));
+    } catch (e) {
+      const err = new Error(navigator.onLine === false
+        ? 'Нет интернета'
+        : 'Нет связи с сервером (сервер не ответил)');
+      err.network = true;
+      setNetProblem(true);
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    setNetProblem(false);
     let data = null;
     try { data = await res.json(); } catch (e) { /* пусто (например, CSV) */ }
     if (!res.ok) {
@@ -170,12 +293,23 @@
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('header-user').textContent = state.user.name;
 
-    await loadCategories();
+    try {
+      await loadCategories();
+    } catch (e) {
+      if (!e.network) showToast(e.message);
+    }
     goToScreen('home');
   }
 
   async function loadCategories() {
-    state.categoryGroups = await api('/api/categories');
+    try {
+      state.categoryGroups = await api('/api/categories');
+      try { localStorage.setItem('expenseCategories', JSON.stringify(state.categoryGroups)); } catch (e) { /* ничего */ }
+    } catch (e) {
+      // Без связи — категории из прошлой загрузки, чтобы расход можно было записать в очередь
+      try { state.categoryGroups = JSON.parse(localStorage.getItem('expenseCategories') || '[]'); } catch (x) { state.categoryGroups = []; }
+      if (!state.categoryGroups.length) throw e;
+    }
 
     // Фильтр по разделу/категории (экран «Расходы»)
     const groupSel = document.getElementById('f-group');
@@ -213,10 +347,12 @@
     const titles = { home: 'Главная', expenses: 'Расходы', reports: 'Отчёты', profile: 'Профиль' };
     document.getElementById('header-title').textContent = titles[name];
 
-    if (name === 'home') loadHomeScreen();
-    if (name === 'expenses') loadExpensesScreen();
-    if (name === 'reports') loadReportsScreen();
-    if (name === 'profile') loadProfileScreen();
+    const loaders = { home: loadHomeScreen, expenses: loadExpensesScreen, reports: loadReportsScreen, profile: loadProfileScreen };
+    Promise.resolve().then(loaders[name]).catch((e) => {
+      if (!e.network) showToast(e.message);
+    });
+    renderNetBanner();
+    renderPendingBanner();
   }
 
   document.querySelectorAll('.bottom-nav button').forEach((b) => {
@@ -533,6 +669,7 @@
     const adminBlock = document.getElementById('admin-block');
     adminBlock.classList.toggle('hidden', !state.user.is_admin);
     if (!state.user.is_admin) return;
+    const balanceDone = loadBalanceBlock(); // баланс первым и независимо от остального
 
     const users = await api('/api/users/admin/all');
     document.getElementById('admin-users-list').innerHTML = users.map((u) => `
@@ -584,11 +721,33 @@
       });
     });
 
-    await loadBalanceBlock();
+    await balanceDone;
   }
 
   // Личный баланс наличных (только для администратора)
   async function loadBalanceBlock() {
+    const amountEl = document.getElementById('balance-amount');
+    const statusEl = document.getElementById('balance-status');
+    amountEl.textContent = '…';
+    statusEl.className = 'field-label';
+    statusEl.textContent = 'Загружаю…';
+    try {
+      await loadBalanceBlockData();
+      const now = new Date();
+      const pending = loadPending();
+      statusEl.className = pending.length ? 'balance-status bad' : 'balance-status ok';
+      statusEl.textContent = pending.length
+        ? `⚠️ Есть несохранённые расходы (${pending.length}) — в балансе их нет. Отправьте их (красный список сверху).`
+        : `✓ Актуально на ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    } catch (e) {
+      amountEl.textContent = '— ₽';
+      document.getElementById('balance-detail').textContent = '';
+      statusEl.className = 'balance-status bad';
+      statusEl.textContent = `❌ Баланс не загрузился: ${e.message}. Не опирайтесь на старые цифры — обновите экран, когда появится связь.`;
+    }
+  }
+
+  async function loadBalanceBlockData() {
     const from14 = new Date();
     from14.setDate(from14.getDate() - 13);
     const [summary, entries, spent, unmarked] = await Promise.all([
@@ -700,7 +859,9 @@
   }
 
   function openExpenseModal() {
-    state.modal = { categoryId: null, categoryName: null, amount: '', date: toISODate(new Date()), comment: '' };
+    if (!state.categoryGroups.length) loadCategories().then(renderCategoryPicker).catch(() => {});
+    state.modal = { categoryId: null, categoryName: null, amount: '', date: toISODate(new Date()), comment: '', clientId: newClientId() };
+    document.getElementById('save-error').classList.add('hidden');
     document.getElementById('input-amount').value = '';
     document.getElementById('input-comment').value = '';
     document.getElementById('input-date').value = state.modal.date;
@@ -765,18 +926,24 @@
     state.modal.comment = document.getElementById('input-comment').value.trim();
     const fromCash = document.getElementById('input-from-cash').checked;
     const btn = document.getElementById('btn-save-expense');
+    const errBox = document.getElementById('save-error');
+    errBox.classList.add('hidden');
+    if (!state.modal.clientId) state.modal.clientId = newClientId();
+    const item = {
+      client_id: state.modal.clientId,
+      category_id: state.modal.categoryId,
+      category_name: state.modal.categoryName,
+      amount: state.modal.amount,
+      expense_date: state.modal.date,
+      comment: state.modal.comment,
+      from_personal_cash: fromCash
+    };
+    // Сначала — на телефон: если связь оборвётся или приложение закроют, расход не потеряется
+    addPending(item);
     btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
     try {
-      const saved = await api('/api/expenses', {
-        method: 'POST',
-        body: JSON.stringify({
-          category_id: state.modal.categoryId,
-          amount: state.modal.amount,
-          expense_date: state.modal.date,
-          comment: state.modal.comment,
-          from_personal_cash: fromCash
-        })
-      });
+      const saved = await postExpense(item);
       document.getElementById('confirm-text').textContent =
         `${state.modal.categoryName}, ${formatMoney(state.modal.amount)}`;
       // Проверка списания: показываем, что сохранилось на сервере, а не что отмечено
@@ -790,20 +957,26 @@
         cashBox.textContent = '💵 Списано с баланса';
         api('/api/balance/summary').then((sm) => {
           cashBox.textContent = `💵 Списано с баланса. Остаток: ${formatMoney(sm.balance)}`;
-        }).catch(() => {});
+        }).catch(() => { cashBox.textContent = '💵 Списано с баланса (остаток не загрузился — смотрите в Профиле)'; });
       }
       for (let i = 1; i <= 4; i++) document.getElementById(`step-${i}`).classList.add('hidden');
       document.getElementById('step-confirm').classList.remove('hidden');
-      if (state.currentScreen === 'home') loadHomeScreen();
+      if (state.currentScreen === 'home') loadHomeScreen().catch(() => {});
     } catch (e) {
-      showToast(e.message);
+      if (!e.network) removePending(item.client_id); // сервер отказал (например, нет прав) — повтор не поможет
+      errBox.innerHTML = e.network
+        ? `❌ Сервер НЕ подтвердил сохранение: ${escapeHtml(e.message)}.<br>Считайте, что расхода в программе нет. Он ждёт на телефоне в красном списке сверху — когда появится связь, нажмите «Сохранить расход» ещё раз или «Отправить» в списке. Дубля не будет.`
+        : `❌ Расход НЕ сохранён: ${escapeHtml(e.message)}`;
+      errBox.classList.remove('hidden');
     } finally {
       btn.disabled = false;
+      btn.textContent = 'Сохранить расход';
     }
   });
 
   document.getElementById('btn-add-more').addEventListener('click', () => {
-    state.modal = { categoryId: null, categoryName: null, amount: '', date: toISODate(new Date()), comment: '' };
+    state.modal = { categoryId: null, categoryName: null, amount: '', date: toISODate(new Date()), comment: '', clientId: newClientId() };
+    document.getElementById('save-error').classList.add('hidden');
     document.getElementById('input-amount').value = '';
     document.getElementById('input-comment').value = '';
     document.getElementById('input-date').value = state.modal.date;
@@ -839,11 +1012,17 @@
       const fresh = await api(`/api/users/me?userId=${stored.id}`);
       state.user = fresh;
       saveCurrentUser(fresh);
-      await startApp();
     } catch (e) {
-      clearStoredUser();
-      await renderLogin();
+      if (!e.network) {
+        // Сервер ответил, что пользователя нет или он выключен — выбрать заново
+        clearStoredUser();
+        await renderLogin();
+        return;
+      }
+      // Нет связи: открываемся под сохранённым пользователем, красная плашка сверху
+      state.user = stored;
     }
+    await startApp();
   })();
 
   if ('serviceWorker' in navigator) {

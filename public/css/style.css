@@ -518,3 +518,32 @@ textarea { resize: vertical; min-height: 80px; }
 .confirm-cash { margin: 8px 0 14px; padding: 10px 12px; border-radius: 10px; font-size: 15px; background: var(--surface); }
 .confirm-cash.ok { color: var(--accent); }
 .confirm-cash.bad { color: var(--danger); border: 1px solid var(--danger); }
+
+/* ---------- Связь, несохранённые расходы, актуальность баланса ---------- */
+.net-banner, .pending-banner {
+  position: sticky;
+  top: 52px;
+  z-index: 6;
+  margin: 0 16px 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  border: 1px solid var(--danger);
+  background: #3b1218;
+  color: #fecaca;
+}
+.pending-banner .pending-title { font-weight: 700; margin-bottom: 6px; }
+.pending-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; }
+.pending-row span:last-child { display: flex; gap: 4px; flex-shrink: 0; }
+.save-error {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--danger);
+  background: #3b1218;
+  color: #fecaca;
+  font-size: 15px;
+}
+.balance-status { font-size: 14px; margin-bottom: 8px; }
+.balance-status.ok { color: var(--accent); }
+.balance-status.bad { color: var(--danger); }

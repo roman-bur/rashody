@@ -86,12 +86,33 @@ router.post('/', requireUser, async (req, res, next) => {
     );
     if (!catRows.length) return res.status(400).json({ error: 'Категория не найдена или отключена' });
 
-    const { rows } = await pool.query(
-      `INSERT INTO expenses (category_id, amount, expense_date, comment, user_id, from_personal_cash)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, category_id, amount, expense_date, comment, user_id, created_at, from_personal_cash`,
-      [categoryId, amount, expenseDate, comment, req.currentUser.id, fromPersonalCash]
-    );
+    // Номер расхода от телефона: повторная отправка того же расхода (ответ потерялся
+    // при плохой связи) возвращает уже сохранённую запись, а не создаёт дубль.
+    const clientId = typeof req.body.client_id === 'string' && /^[\w-]{8,64}$/.test(req.body.client_id)
+      ? req.body.client_id : null;
+    const findExisting = async () => {
+      if (!clientId) return null;
+      const { rows } = await pool.query(`${BASE_SELECT} WHERE e.client_id = $1`, [clientId]);
+      return rows[0] || null;
+    };
+    const existing = await findExisting();
+    if (existing) return res.status(200).json({ ...existing, already_saved: true });
+
+    let rows;
+    try {
+      ({ rows } = await pool.query(
+        `INSERT INTO expenses (category_id, amount, expense_date, comment, user_id, from_personal_cash, client_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, category_id, amount, expense_date, comment, user_id, created_at, from_personal_cash`,
+        [categoryId, amount, expenseDate, comment, req.currentUser.id, fromPersonalCash, clientId]
+      ));
+    } catch (err) {
+      if (err.code === '23505') {
+        const again = await findExisting();
+        if (again) return res.status(200).json({ ...again, already_saved: true });
+      }
+      throw err;
+    }
 
     res.status(201).json({
       ...rows[0],

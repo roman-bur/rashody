@@ -29,6 +29,8 @@
     <h1 id="header-title">Главная</h1>
     <span id="header-user" class="badge"></span>
   </header>
+  <div id="net-banner" class="net-banner hidden"></div>
+  <div id="pending-banner" class="pending-banner hidden"></div>
 
   <main class="container">
 
@@ -122,6 +124,7 @@
         <div class="profile-block">
           <h3>Баланс наличных</h3>
           <div class="value" id="balance-amount">0 ₽</div>
+          <div id="balance-status" class="field-label"></div>
           <div class="field-label" id="balance-detail"></div>
           <button id="btn-add-income" class="btn-secondary">+ Приход</button>
           <button id="btn-adjust-balance" class="btn-secondary">Указать остаток на сегодня</button>
@@ -198,6 +201,7 @@
         <input type="checkbox" id="input-from-cash">
         Оплачено из моих личных наличных
       </label>
+      <div id="save-error" class="save-error hidden"></div>
       <button class="btn-primary" id="btn-save-expense">Сохранить расход</button>
     </div>
 
